@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Media Maestro - Conversor Completo</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,Arial}
+  body{background:#0b1220;color:#fff;display:flex;flex-direction:column;align-items:center;padding:16px;min-height:100vh}
+  h1{text-align:center;font-size:24px;margin-bottom:10px}
+  p{color:#bfc6d4;font-size:14px;text-align:center;margin-bottom:20px}
+
+  /* MOBILE FIRST LAYOUT */
+  .card{width:100%;max-width:480px;background:#111a33;padding:16px;border-radius:16px;box-shadow:0 4px 28px rgba(0,0,0,0.4)}
+
+  /* Dropzone */
+  .dropzone{border:2px dashed #4da6ff;border-radius:14px;padding:28px;text-align:center;background:#0d1530;transition:0.3s}
+  .dropzone.dragover{background:#15204b;border-color:#6cc0ff}
+  .dropzone p{font-size:14px}
+
+  /* Buttons */
+  button{width:100%;padding:14px;border:none;border-radius:10px;font-weight:600;margin-top:10px;background:#4da6ff;color:#021024;font-size:15px;cursor:pointer;transition:0.2s}
+  button:hover{opacity:0.85}
+
+  /* Hidden file input */
+  #fileInput{display:none}
+
+  /* VIDEO PREVIEW */
+  video,audio{width:100%;margin-top:15px;border-radius:12px;background:#000}
+
+  /* Options */
+  .options{margin-top:16px;font-size:14px}
+  .options label{display:block;margin-top:10px;margin-bottom:4px;color:#bfc6d4}
+  .options input,.options select{width:100%;padding:10px;border-radius:10px;border:none;background:#1a264d;color:#fff;font-size:14px}
+
+  /* Progress */
+  .progress{width:100%;height:12px;background:#1a264d;border-radius:10px;margin-top:18px;overflow:hidden}
+  .progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,#4da6ff,#9f7fff)}
+
+  /* Logs */
+  #log{white-space:pre-wrap;background:#0d1530;padding:12px;border-radius:10px;margin-top:15px;font-size:12px;color:#bfc6d4;max-height:200px;overflow-y:auto}
+</style>
+</head>
+<body>
+<h1>Media Maestro</h1>
+<p>Conversor e Cortador de Vídeo/Áudio — Completo, moderno e pronto para virar app</p>
+
+<div class="card">
+  <!-- Dropzone -->
+  <div id="dropzone" class="dropzone">
+    <p>Arraste um vídeo/áudio aqui<br>ou toque para selecionar</p>
+  </div>
+  <input type="file" id="fileInput" accept="video/*,audio/*">
+
+  <button id="btnSelect">Selecionar arquivo</button>
+
+  <video id="previewVideo" controls hidden></video>
+  <audio id="previewAudio" controls hidden></audio>
+
+  <!-- Options -->
+  <div class="options">
+    <label>Início (hh:mm:ss)</label>
+    <input id="start" type="text" placeholder="00:00:00">
+
+    <label>Fim (hh:mm:ss)</label>
+    <input id="end" type="text" placeholder="00:00:05">
+
+    <label>Formato de saída</label>
+    <select id="format">
+      <option value="mp4">MP4</option>
+      <option value="mp3">MP3</option>
+      <option value="wav">WAV</option>
+      <option value="ogg">OGG</option>
+      <option value="webm">WEBM</option>
+      <option value="mkv">MKV</option>
+      <option value="flac">FLAC</option>
+    </select>
+  </div>
+
+  <button id="convertBtn">Converter</button>
+
+  <div class="progress"><i id="progressBar"></i></div>
+  <div id="log"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.4/dist/ffmpeg.min.js"></script>
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const btnSelect = document.getElementById('btnSelect');
+const previewVideo = document.getElementById('previewVideo');
+const previewAudio = document.getElementById('previewAudio');
+const progressBar = document.getElementById('progressBar');
+const log = document.getElementById('log');
+let selectedFile = null;
+
+function writeLog(msg){ log.textContent += msg + "
+"; log.scrollTop = log.scrollHeight; }
+
+// -------------------------
+// FILE SELECTION
+// -------------------------
+btnSelect.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+
+function handleFile(file){
+  selectedFile = file;
+  writeLog("Arquivo selecionado: " + file.name);
+
+  const url = URL.createObjectURL(file);
+  if(file.type.startsWith("video")){
+    previewAudio.hidden = true;
+    previewVideo.hidden = false;
+    previewVideo.src = url;
+  } else {
+    previewVideo.hidden = true;
+    previewAudio.hidden = false;
+    previewAudio.src = url;
+  }
+}
+
+// -------------------------
+// CONVERSION
+// -------------------------
+document.getElementById('convertBtn').addEventListener('click', async () => {
+  if(!selectedFile) return alert("Selecione um arquivo primeiro.");
+
+  writeLog("Iniciando conversão...");
+
+  const { createFFmpeg, fetchFile } = FFmpeg;
+  const ffmpeg = createFFmpeg({ log: true, progress: p => {
+    if(p.ratio) progressBar.style.width = (p.ratio*100) + "%";
+  }});
+
+  await ffmpeg.load();
+
+  const inputName = "input" + selectedFile.name.substring(selectedFile.name.lastIndexOf('.'));
+  ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
+
+  const start = document.getElementById('start').value || "0";
+  const end = document.getElementById('end').value || "5";
+  const format = document.getElementById('format').value;
+  const outputName = `output.${format}`;
+
+  writeLog("Convertendo...");
+
+  await ffmpeg.run(
+    "-i", inputName,
+    "-ss", start,
+    "-to", end,
+    outputName
+  );
+
+  const data = ffmpeg.FS('readFile', outputName);
+  const blob = new Blob([data.buffer], { type: `video/${format}` });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = outputName;
+  a.click();
+
+  writeLog("Conversão concluída!");
+});
+</script>
+</body>
+</html>
